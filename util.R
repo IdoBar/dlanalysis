@@ -4,35 +4,15 @@
 
 
 ########################################
-## Tell R the terminal width.  Needs to be re-run every time you resize the
-## terminal, so source() this file 
-
-if ( (numcol <-Sys.getenv("COLUMNS")) != "") {
-  numcol = as.integer(numcol)
-  options(width= numcol - 1)
-
-} else if (Sys.info()['sysname'] == 'Darwin') {
-  # I think this is a mac-only stty output format. 
-  # TODO need to prevent this from executing when under GUI
-  output = tryCatch(system("stty -a", intern=T), error=I)
-  if (length(output) > 0) {
-    numcol = as.integer(sub(".* ([0-9]+) column.*", "\\1", output[1]))
-    if (is.finite(numcol) && numcol > 0) {
-      options(width=  numcol - 1 )
-    }
-  }
-  rm(output)
-}
-rm(numcol)
-
-########################################
 ## Put everything into an environment, to not pollute global namespace
 
 util = new.env()
 
-
 ########################################
 ## Better I/O routines
+util$repath <- function(x) {
+   xa <- gsub('\\\\', '/', x)
+ }
 
 util$read.tsv <- function(..., header=F, sep='\t', quote='', comment='', na.strings='', stringsAsFactors=FALSE) {
   # read.table() wrapper with default settings for no-nonsense, pure TSV
@@ -63,10 +43,17 @@ util$write.tsv <- function(..., header=NA, col.names=F, row.names=F, sep='\t', n
   write.table(..., col.names=col.names, row.names=row.names, sep=sep, na=na, quote=quote)
 }
 
-
+# write fasta files
+utils$write.fasta <- function(id_seq_table, line_width=60, filename){
+  file.create(filename)
+  apply(id_seq_table, 1, function(entry) cat(sprintf("%s\n%s\n\n", entry[1],  
+                                           gsub(sprintf("([GTAC]{%i})",line_width), "\\1\n", entry[2])), 
+                                             file = fasta_file, append = TRUE))
+}
 ########################################
 ##  Misc small routines
-
+  # calculates standard error
+util$se <- function(x) sqrt(var(x)/length(x))
 util$as.c <- as.character
 
 util$unwhich <- function(indices, len=length(indices)) {
@@ -77,18 +64,6 @@ util$unwhich <- function(indices, len=length(indices)) {
 }
 
 util$nna <- function(...) !is.na(...)   # i type this a lot, i think its worth 3 characters + shift key
-
-util$kna <- function(x) x[nna(x)]  # kill NA's (from vector) .. BUT is this same as na.omit() ?
-
-# hm: is this subsumed by reshape::rescaler?
-
-util$unitnorm <- function(x, na.rm=FALSE, ...)  (x - mean(x,na.rm=na.rm,...)) / sd(x,na.rm=na.rm)
-
-util$renorm <- function(x, mean=0, sd=1, ...)  (unitnorm(x,...) * sd) + mean
-
-util$rbern <- function(n, p=0.5)  rbinom(n, size=1, prob=p)
-
-util$boot_binom <- function(n, p)   rbinom(1,n,p)/n
 
 util$shuffle <- function(...) UseMethod("shuffle")
 
@@ -114,27 +89,6 @@ util$trim_levels.data.frame <- function(x) {
   x
 }
 
-util$prio_check = function(...) {
-  # priority-order, 3-value-logic backoff
-  # the first argument that is not NA or NULL, return it.
-  vars = list(...)
-  for (i in 1:length(vars)) {
-    if (!is.null(vars[[i]]) && !is.na(vars[[i]]))
-      return(vars[[i]])
-  }
-  FALSE
-}
-
-util$grid_points <- function(min,max) {
-  # 1,2,5,10,20,50 ... kinda-exponential scaling, nice for grid search
-  x = min
-  ret = NULL
-  while(x <= max) {
-    ret = c(ret, x, x*2, x*5)
-    x = x * 10
-  }
-  ret[ret <= max]
-}
 
 # grep() returns indices of matches.  Variants:
 
@@ -151,7 +105,27 @@ util$ngrep <- function(pat,x, ...)
 
 ########################################
 ##  Other data manipulation routines
-
+  
+  # Shortens and "prettify" long terms 
+util$pretty_term <- function(term, comma=TRUE, dot=TRUE, paren=TRUE, brace=TRUE, cap=TRUE, pref="PREDICTED:", charNum=50, flag_change=FALSE) {
+  term <- sapply(term, function (s) {
+    s_ <- s
+    if (!is.null(pref)) s_ <- sub(paste0("^",pref, "\\s*"), "", s_)
+    if (cap) s_ <- sub("(^.)", "\\U\\1", s_, perl=TRUE)
+    if (paren) s_ <- sub(" \\(.+\\)", "",  s_)
+    if (brace) s_ <- sub(" \\[.+\\]", "",  s_)
+    if (dot) s_ <- unlist(strsplit(s_, ".", fixed = TRUE))[1]
+    if (comma) s_ <- unlist(strsplit(s_, ",", fixed = TRUE))[1]
+    # Trim to the end of the word if character number limit is reached and remove any trailing commas or dots
+    if (charNum>0) s_ <- sub("[,|\\.]$", "", sub(sprintf("(^.{%s}[\\S]*)[ ]*.*", charNum), "\\1", s_, perl=TRUE), perl = TRUE)
+    # Add a ^ at the end if the term was trimmed anyhow
+    if (flag_change && nchar(s_)<nchar(s) && !grepl("\\*$", s_)) return(paste0(s_, "^"))
+    else return(s_)
+  }, USE.NAMES = FALSE)
+  return(term)
+}
+  
+  
 util$merge.list <- function(x,y,only.new.y=FALSE,append=FALSE,...) {
   # http://tolstoy.newcastle.edu.au/R/devel/04/11/1469.html
   out=x
@@ -193,34 +167,7 @@ util$inject <- function(collection, start, fn) {
   acc
 }
 
-util$xprod <- function(xs,ys) {
-  # Set cross-product
-  ret = list()
-  i=0
-  for (x in xs)  for (y in ys) {
-    i = i+1
-    ret[[i]] = list(x=x,y=y)
-  }
-  ret
-}
 
-util$multi_xprod <- function(args) {
-  # Set cross-product
-  pair_xprod <- function(xs,ys) {
-    ret = list()
-    i=0
-    for (x in xs)  for (y in ys) {
-      i = i+1
-      ret[[i]] = c(x,y)
-    }
-    ret
-  }
-  ret = list(NA)
-  for (i in 1:length(args)) {
-    ret = pair_xprod(ret, args[[i]])
-  }
-  lapply(ret, function(x)  x[2:length(x)])
-}
 
 
 ########################################
@@ -265,6 +212,32 @@ util$table_html = function(...) {
 ########################################
 ##  Workspace management
 
+  # install and load packages from CRAN, Bioconductor or git, see usage below
+  
+util$install.deps <- function(p, repo="cran"){
+  call_install <- switch(repo,cran=c("install.packages(package, repos=\"http://cloud.r-project.org/\""),
+                         bioc=c("biocLite(package, suppressUpdates=TRUE"),
+                         git=c("install.github(package"))
+  if (repo=="bioc") eval(parse(text = getURL("http://bioconductor.org/biocLite.R", ssl.verifypeer=FALSE)))
+  for (package in p) {
+    if (!package %in% installed.packages()) {
+      cat(sprintf("Please wait, installing and loading missing package %s and its dependencies from %s.\n",
+                  package, repo), file=stderr())
+      suppressWarnings(eval(parse(text = sprintf("%s, quiet = TRUE)",call_install))))
+      if (!package %in% installed.packages()) {
+        ifelse(!interactive(),q("no", 2, TRUE),
+               stop(sprintf("Unable to install missing package %s from %s.\n",
+                            package, repo), call. = FALSE))
+      }
+    }
+    require(package, character.only=T, quietly=TRUE, warn.conflicts=TRUE)
+  }
+}
+
+# CRAN_packages <- c("RCurl", "dplyr", "tidyr", "ggplot2", "RColorBrewer", "RSQLite")
+  # install.deps(CRAN_packages)
+
+  
 # improved list of objects
 # http://stackoverflow.com/questions/1358003/tricks-to-manage-the-available-memory-in-an-r-session
 util$list_objects = function (pos = 1, pattern) {
@@ -369,36 +342,6 @@ util$dotprogress <- function(callback, interval=10) {
 ########################################
 ##  External programs for interactivity
 
-util$excel <- function(d) {
-  f = paste("/tmp/tmp.", round(runif(1)*1000),".csv",  sep='')
-  # con = file(f, "w", encoding="MACROMAN")
-  con = file(f, "w")
-  write.csv(d, con, row.names=FALSE)
-  close(con)
-  # system(paste("open -a 'Microsoft Excel' ",f, sep=''))
-  system(paste("open -a '/Applications/Microsoft Office 2008/Microsoft Excel.app' ",f, sep=''))
-}
-
-util$mate <- function(...) {
-  system(paste("mate", ...))
-}
-
-util$vim <- function(...) {
-  system(paste("vim",...))
-}
-
-util$ll <- function(...) {
-  system(paste("ls","-l",...))
-}
-
-util$newwin <- function(x) {
-  # Takes object printout into new file... dosink(OPEN=T) kinda subsumes this
-  f = paste("/tmp/tmp.", round(runif(1)*100),".txt",  sep='')
-  capture.output(print(x),file=f)
-  # system("FILE_TO_VIEW=/tmp/tmp.txt /Applications/Utilities/Terminal.app/Contents/MacOS/Terminal /users/brendano/sw/bin/lame_viewer.sh")
-  # system("DISPLAY=:0 /usr/X11R6/bin/xterm -geometry 80x60 -e less /tmp/tmp.txt &")
-  system(paste("mate ",f," &", sep=''))
-}
 
 
 ########################################
@@ -590,68 +533,6 @@ util$binary_eval <- function(pred,labels, cutoff='naive', repar=TRUE, ...) {
   invisible(rocr_pred)
 }
 
-
-########################################
-# These are kinda obscure, should delete?
-
-util$fair_gt <- function(x,y) {
-  # Breaks ties arbitrarily.  # of TRUE's should be halfway between > and >=.
-  ret = rep(NA, length(x))
-  ret[x > y] = TRUE
-  ret[x < y] = FALSE
-  # which filler order?  should randomly chooise either c(T,F) vs c(F,T) as the
-  # seed (or a random permutation of 50/50 distribution on the whole length),
-  # but not clear how to stably but arbitrarily choose one...  hash the bitmap
-  # of the concatenation of x and y perhaps.  don't know how to do in highlevel R.
-  filler_length = length(which(x==y))
-  filler = rep(c(TRUE,FALSE), ceiling(filler_length/2) )[1:filler_length]
-  ret[which(x == y)] = filler
-  ret
-}
-
-util$fair_lt <- function(x,y)  ! fair_gt(x,y)
-
-util$rand_gt <- function(x,y) {
-  # Breaks ties randomly.
-  ret = rep(NA, length(x))
-  ret[x > y] = TRUE
-  ret[x < y] = FALSE
-  filler_length = length(which(x==y))
-  filler = as.logical(rbern(filler_length))
-  ret[which(x == y)] = filler
-  ret
-}
-
-util$rand_lt <- function(x,y)  ! rand_gt(x,y)
-
-
-
-########################################
-# Deprecated
-
-## now in plyr 0.19 as summarise() http://github.com/hadley/plyr/blob/master/NEWS
-# util$reframe = function(.data, ...) {
-#   e = eval(substitute(list(...)), .data, parent.frame())
-#   data.frame(e)
-# }
-
-# util$table.range <- function(x, min=NULL, max=NULL) {
-#   ## DEPRECATED: use factor() on both sides, instead, to specify the allowable range
-#   # Like table(), but only for integers, and forces a contiguous range of bins
-#   # so counts of 0 can appear.  Useful if you want to compare tables between
-#   # different datasets.
-#   if (is.null(min))  min = min(x)
-#   if (is.null(max))  max = max(x)
-#   x2 = rep(0, max-min+1)
-#   t = table(x)
-#   t_inds = as.integer(names(t))
-#   t_mask = t_inds >= min  &  t_inds <= max
-#   t_inds = t_inds[t_mask]
-#   mask = t_inds - min + 1
-#   x2[mask] = x2[mask] + t[t_mask]
-#   names(x2) = min:max
-#   x2
-# }
 
 ########################################
 
