@@ -44,7 +44,7 @@ util$write.tsv <- function(..., header=NA, col.names=F, row.names=F, sep='\t', n
 }
 
 # write fasta files
-utils$write.fasta <- function(id_seq_table, line_width=60, filename){
+util$write.fasta <- function(id_seq_table, line_width=60, filename){
   file.create(filename)
   apply(id_seq_table, 1, function(entry) cat(sprintf("%s\n%s\n\n", entry[1],  
                                            gsub(sprintf("([GTAC]{%i})",line_width), "\\1\n", entry[2])), 
