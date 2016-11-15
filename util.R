@@ -125,29 +125,6 @@ util$pretty_term <- function(term, comma=TRUE, dot=TRUE, paren=TRUE, brace=TRUE,
   return(term)
 }
   
-  
-util$merge.list <- function(x,y,only.new.y=FALSE,append=FALSE,...) {
-  # http://tolstoy.newcastle.edu.au/R/devel/04/11/1469.html
-  out=x
-
-  ystructure = names(c(y,recursive=TRUE))
-  xstructure = names(c(x,recursive=TRUE))
-  yunique = ystructure[! ystructure %in% xstructure]
-
-  ystructure = sapply(ystructure,FUN=function(element)   strsplit(element,"\\."))
-  xstructure = sapply(xstructure,FUN=function(element)   strsplit(element,"\\."))
-  yunique = sapply(yunique,FUN=function(element) strsplit(element,"\\."))
-
-   if (only.new.y)
-    lapply(yunique, FUN=function(index) out[[index]]<<-y[[index]])
-   else {
-     if (!append) {
-       lapply(ystructure, FUN=function(index) out[[index]]<<-y[[index]])
-     }
-     else lapply(ystructure, FUN=function(index) out[[index]]<<-c(out[[index]],y[[index]]))
-   }
-   return(out)
-}
 
 util$tapply2 <- function(x, ...) {
   # like tapply but preserves factors
@@ -220,11 +197,11 @@ util$install.deps <- function(p, repo="cran"){
                          git=c("install.github(package"))
   if (repo=="bioc") eval(parse(text = getURL("http://bioconductor.org/biocLite.R", ssl.verifypeer=FALSE)))
   for (package in p) {
-    if (!package %in% installed.packages()) {
+    if (!package %in% utils::installed.packages()) {
       cat(sprintf("Please wait, installing and loading missing package %s and its dependencies from %s.\n",
                   package, repo), file=stderr())
       suppressWarnings(eval(parse(text = sprintf("%s, quiet = TRUE)",call_install))))
-      if (!package %in% installed.packages()) {
+      if (!package %in% utils::installed.packages()) {
         ifelse(!interactive(),q("no", 2, TRUE),
                stop(sprintf("Unable to install missing package %s from %s.\n",
                             package, repo), call. = FALSE))
